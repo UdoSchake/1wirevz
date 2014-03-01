@@ -21,7 +21,7 @@ Precondition: Raspian Linux (http://www.raspberrypi.org/downloads)
 
 Binding libraries: libcurl & libconfig -> 'sudo apt-get install libcurl4-gnutls-dev libconfig-dev'
 
-Download: 'git clone https://github.com/w3llschmidt/1wirevz.git /usr/local/src/1wirevz'
+Download: 'git clone https://github.com/UdoSchake/1wirevz.git /usr/local/src/1wirevz'
 
 ---
 
@@ -39,6 +39,8 @@ Configuration
 =============
 
 $ sudo vim /etc/init.d/rc.local ( replace '$ALL' with '$remote_fs $syslog $network' )
+
+$ sudo chmod +x /usr/local/sbin/1wirevz
 
 $ sudo insserv 1wirevz ( make deamon autostart )
 
