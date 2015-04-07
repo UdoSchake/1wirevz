@@ -52,7 +52,10 @@ int pidFilehandle, minterval, vzport, i, count;
 
 const char *vzserver, *vzpath, *uuid;
 
-char sensorid[3][32][17], vzuuid[3][32][64], crc_buffer[64], temp_buffer[64], fn[128], url[128];
+#define MAX_BUS 12
+#define MAX_DEV 31
+
+char sensorid[MAX_BUS+1][MAX_DEV+1][17], vzuuid[MAX_BUS+1][MAX_DEV+1][64], crc_buffer[64], temp_buffer[64], fn[128], url[128];
 
 char crc_ok[] = "YES";
 char not_found[] = "not found.";
@@ -245,10 +248,12 @@ int count_i2cdevices() {
 return i2cdevices-2;
 }
 
-void ds1820init() {
+void ds1820init(int nr_devices) {
 
 	int i = 0;
-	for (i=1; i<=count_i2cdevices(); i++) {
+	if (nr_devices>MAX_DEV) nr_devices=MAX_DEV;
+	//int nr_devices = count_i2cdevices();
+	for (i=1; i<=nr_devices; i++) {
 
 		char fn[64];
 		sprintf ( fn, "/sys/bus/w1/devices/w1_bus_master%d/w1_master_slaves", i );
@@ -261,23 +266,25 @@ void ds1820init() {
 		{
 			count = 1;
 			
-			while ( fgets ( sensorid[i][count], sizeof(sensorid[i][count]), fp ) != NULL ) {
-			sensorid[i][count][strlen(sensorid[i][count])-1] = '\0';
-			
+			while ( (count < MAX_DEV) && (fgets ( sensorid[i][count], sizeof(sensorid[i][count]), fp ) != NULL) ) {
+				sensorid[i][count][strlen(sensorid[i][count])-1] = '\0';
+
 				if ( ! ( strstr ( sensorid[i][count], not_found ) )) {
-				
+
 					char buffer[32];
 					sprintf ( buffer, "*%s", sensorid[i][count] );
-					if ( config_lookup_string( &cfg, buffer, &uuid ) == CONFIG_TRUE )
-					strcpy(vzuuid[i][count], uuid);
-				
+					if ( config_lookup_string( &cfg, buffer, &uuid ) == CONFIG_TRUE ) {
+						strcpy(vzuuid[i][count], uuid);
+						++(vzuuid[i][0][0]); // store number of devices on that bus here
+					}
+
 				}
-						
-			if ( ! ( strstr ( sensorid[i][count], not_found ) )) {
-			syslog( LOG_INFO, "%s (Bus: %d) (VzUUID: %s)", sensorid[i][count], i, vzuuid[i][count] );
-			}
-			
-			count++;
+
+				if ( ! ( strstr ( sensorid[i][count], not_found ) )) {
+					syslog( LOG_INFO, "%s (Bus: %d) (VzUUID: %s)", sensorid[i][count], i, vzuuid[i][count] );
+				}
+
+				count++;
 			}
 			
 		}
@@ -323,14 +330,14 @@ void http_post( double temp, char  *vzuuid ) {
 curl_global_cleanup();
 }
 
-double ds1820read(char *sensorid) {
+void ds1820read(char *sensorid) {
 
 	FILE *fp;	
 
 	sprintf(fn, "/sys/bus/w1/devices/%s/w1_slave", sensorid );
 
 	if  ( (fp = fopen ( fn, "r"  )) == NULL ) {
-	return(-1);
+	return;
 	}
 	
 	else 
@@ -344,7 +351,7 @@ double ds1820read(char *sensorid) {
 			syslog(LOG_INFO, "CRC check failed, SensorID: %s", sensorid);
 			
 		fclose ( fp );
-		return(-1);
+		return;
 		}
 		
 		else 
@@ -363,7 +370,7 @@ double ds1820read(char *sensorid) {
 			char *pos = strstr(temp_buffer, "t=");
 
 			if (pos == NULL)
-				return -1;
+				return;
 
 			pos += 2;
 			
@@ -387,51 +394,53 @@ int main() {
 
 	setlogmask(LOG_UPTO(LOG_INFO));
 	openlog(DAEMON_NAME, LOG_CONS | LOG_PERROR, LOG_USER);
+	int nr_devices = count_i2cdevices(); // TODO reset/rescan e.g. on SIGHUP
+	if (nr_devices > MAX_DEV) nr_devices = MAX_DEV;
 
-	syslog(LOG_INFO, "DS2482 I²C 1-Wire® Master to Volkszaehler deamon %s (%s) %d", DAEMON_VERSION, DAEMON_BUILD, count_i2cdevices());
+	syslog(LOG_INFO, "DS2482 I²C 1-Wire® Master to Volkszaehler deamon %s (%s) %d", DAEMON_VERSION, DAEMON_BUILD, nr_devices);
 
 	cfile();
 	
-	ds1820init();
+	ds1820init(nr_devices); // inits vzuuid
 	
 	char pid_file[16];
 	sprintf ( pid_file, "/tmp/%s.pid", DAEMON_NAME );
 	daemonize( "/tmp/", pid_file );
 				
 	while(1) {
-	
-			i = 0;
-			for (i=1; i<=count_i2cdevices(); i++) {
-			
+
+		i = 0;
+		for (i=1; i<=nr_devices; i++) {
+			if (vzuuid[i][0][0]) { // we store number of found devices on that bus here
 				sprintf ( fn, "/sys/bus/w1/devices/w1_bus_master%d/w1_master_slaves", i );
-			
-				FILE *fp;	
+
+				FILE *fp;
 				if  ( (fp = fopen ( fn, "r" )) == NULL )
 				{
-				syslog(LOG_INFO, "%s", strerror(errno));
+					syslog(LOG_INFO, "%s", strerror(errno));
 				}
 				else
 				{
-				
+
 					count = 1;
-					while ( fgets ( sensorid[i][count], sizeof(sensorid[i][count]), fp ) != NULL ) {
-					sensorid[i][count][strlen(sensorid[i][count])-1] = '\0';
-					
+					while ( (count<MAX_DEV) && (fgets ( sensorid[i][count], sizeof(sensorid[i][count]), fp ) != NULL) ) {
+						sensorid[i][count][strlen(sensorid[i][count])-1] = '\0';
+
 						if ( !( strstr ( sensorid[i][count], not_found ) )) {
-						ds1820read(sensorid[i][count]);
-						
+							ds1820read(sensorid[i][count]);
+
 						}
 
-					count++;
+						count++;
 					}
 					
 				}
 				
-			if (fp != NULL)
-				fclose ( fp );	
+				if (fp != NULL)
+					fclose ( fp );
 			}
-			
-	sleep(minterval);
+		}
+		sleep(minterval);
 	}
 	
 return(0);
