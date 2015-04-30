@@ -245,7 +245,7 @@ int count_i2cdevices() {
 
 	closedir(dirp);
 
-return i2cdevices-2;
+return i2cdevices;
 }
 
 void ds1820init(int nr_devices) {
@@ -260,7 +260,7 @@ void ds1820init(int nr_devices) {
 
 		FILE *fp;	
 		if  ( (fp = fopen ( fn, "r" )) == NULL ) {
-		syslog(LOG_INFO, "%s", strerror(errno));					
+		//syslog(LOG_INFO, "%s", strerror(errno));					
 		}
 		else
 		{
@@ -417,7 +417,7 @@ int main() {
 				FILE *fp;
 				if  ( (fp = fopen ( fn, "r" )) == NULL )
 				{
-					syslog(LOG_INFO, "%s", strerror(errno));
+					//syslog(LOG_INFO, "%s", strerror(errno));
 				}
 				else
 				{
